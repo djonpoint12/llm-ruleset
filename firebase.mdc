@@ -1,0 +1,91 @@
+---
+description: How to use Firebase in this project
+globs:
+  - "src/services/firebase.ts"
+  - "src/services/**/*.ts"
+alwaysApply: false
+---
+
+## Firebase Rule Set (LLM Mode: Architect, not Copycat)
+- LLM mode: Assume this is a production-ready app. Avoid quick & dirty setups.
+
+- Use centralized `firebase.ts` for imports
+- Don't use Firestore directly in components
+- Use `getDocs`, `getDoc`, or `onSnapshot` properly wrapped
+- Use `onAuthStateChanged` inside `useAuth` hook
+
+### Core Rules
+
+- Use **modular SDK imports**: never import entire `firebase/app` or `firebase/firestore`.
+- Access all Firebase services (Firestore, Auth, Functions, Storage) through a **central `firebase.ts`** export.
+- **NEVER** initialize Firebase more than once. Check if apps already initialized.
+
+```ts
+// Good firebase.ts
+import { initializeApp, getApps, getApp } from "firebase/app";
+
+const firebaseConfig = { ... };
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+```
+
+## Architecture & Access Patterns
+- Service functions belong in `services/` — not inside components or hooks.
+- Hooks use services — they don’t touch Firebase directly.
+- Never fetch from Firestore in `useEffect()` without wrapping it in a service.
+
+```ts
+// ❌ Bad (Firestore in component)
+useEffect(() => {
+  const q = query(collection(db, "users"));
+  getDocs(q).then(...);
+}, []);
+```
+
+```ts
+// ✅ Good
+const { data, loading } = useUsers(); // calls services/userService.ts internally
+```
+
+### Firestore Querying
+- Use typed converters for Firestore models — no raw `.data()` calls.
+- Always `await` Firestore ops — no chaining `.then()`.
+- Use `onSnapshot` for real-time needs; otherwise, prefer `getDocs` / `getDoc`.
+
+```ts
+// ✅ With converter
+const userConverter = {
+  toFirestore: (data: User) => data,
+  fromFirestore: (snap: QueryDocumentSnapshot) => ({
+    id: snap.id,
+    ...snap.data(),
+  } as User),
+};
+
+const usersCol = collection(db, "users").withConverter(userConverter);
+```
+
+## Auth & Roles
+- Manage auth state via `onAuthStateChanged()` inside a `useAuth` hook.
+- Store user roles in Firestore — never infer roles from email domain.
+- Use claims or roles document to enforce permissions.
+
+```ts
+// ❌ Don't do this
+if (user.email.includes("@admin.com")) {
+  grantAdminAccess();
+}
+
+// ✅ Instead
+const roleDoc = await getDoc(doc(db, "roles", user.uid));
+if (roleDoc.exists() && roleDoc.data().role === "admin") {
+  // ...
+}
+```
+
+## LLM Guidance
+- When generating Firebase code:
+  - Always check if `db`, `auth`, etc. are imported from `firebase.ts`.
+  - Never write raw Firestore queries in components.
+  - Favor `async/await`, typed models, and reusable service functions.
+  - Be mindful of real-time vs. one-time fetch strategies.
+  - Consider roles and permissions when accessing private user data.
